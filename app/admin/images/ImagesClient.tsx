@@ -210,7 +210,7 @@ export function ImagesClient({
         <button
           type="submit"
           disabled={busy !== null || !newUrl.trim()}
-          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:hover:text-zinc-950"
         >
           {busy?.scope === "create" ? "Saving…" : "Create"}
         </button>
@@ -303,7 +303,7 @@ function ImageRowEditor({
               type="button"
               disabled={pending !== null || url.trim() === rowUrl}
               onClick={() => onSave(url)}
-              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:hover:text-zinc-950"
             >
               {pending === "save" ? "Saving…" : "Save"}
             </button>
