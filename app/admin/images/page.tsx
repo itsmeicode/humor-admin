@@ -1,47 +1,94 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Pagination } from "../Pagination";
+
+const PAGE_SIZE = 50;
 
 type ImageRow = {
   id: string | number;
-  url: string;
+  url: string | null;
   created_datetime_utc?: string | null;
   modified_datetime_utc?: string | null;
 };
 
+type BusyState =
+  | { scope: "create" }
+  | { scope: "row"; id: string | number; op: "save" | "delete" }
+  | null;
+
 export default function AdminImagesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const pageParam = searchParams.get("page");
+  const rawPage = parseInt(pageParam ?? "1", 10);
+  const page =
+    Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1;
+
   const [rows, setRows] = useState<ImageRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newUrl, setNewUrl] = useState("");
-  const [busyId, setBusyId] = useState<string | number | null>(null);
+  const [busy, setBusy] = useState<BusyState>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    const supabase = createClient();
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
-      setError("Not signed in.");
-      setRows([]);
-      setLoading(false);
-      return;
-    }
+  const load = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      if (!silent) {
+        setLoading(true);
+      }
+      setError(null);
+      const supabase = createClient();
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        setError("Not signed in.");
+        setRows([]);
+        setTotalCount(0);
+        if (!silent) setLoading(false);
+        return;
+      }
 
-    const { data, error: qErr } = await supabase
-      .from("images")
-      .select("id, url, created_datetime_utc, modified_datetime_utc")
-      .order("id", { ascending: false })
-      .limit(200);
+      const from = (page - 1) * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
 
-    if (qErr) {
-      setError(qErr.message);
-      setRows([]);
-    } else {
+      const { data, error: qErr, count } = await supabase
+        .from("images")
+        .select("id, url, created_datetime_utc, modified_datetime_utc", {
+          count: "exact",
+        })
+        .order("created_datetime_utc", { ascending: false, nullsFirst: false })
+        .order("id", { ascending: false })
+        .range(from, to);
+
+      if (qErr) {
+        setError(qErr.message);
+        if (!silent) {
+          setRows([]);
+          setTotalCount(0);
+        }
+        if (!silent) setLoading(false);
+        return;
+      }
+
+      const total = count ?? 0;
+      const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+      if (page > totalPages && total > 0) {
+        router.replace(`/admin/images?page=${totalPages}`);
+        if (!silent) setLoading(false);
+        return;
+      }
+
       setRows((data as ImageRow[]) ?? []);
-    }
-    setLoading(false);
-  }, []);
+      setTotalCount(total);
+      if (!silent) setLoading(false);
+    },
+    [page, router]
+  );
 
   useEffect(() => {
     void load();
@@ -61,20 +108,20 @@ export default function AdminImagesPage() {
       return;
     }
 
-    setBusyId("__create__");
+    setBusy({ scope: "create" });
     const { error: insErr } = await supabase.from("images").insert({
       url,
       created_by_user_id: uid,
       modified_by_user_id: uid,
     });
-    setBusyId(null);
+    setBusy(null);
 
     if (insErr) {
       setError(insErr.message);
       return;
     }
     setNewUrl("");
-    await load();
+    await load({ silent: true });
   }
 
   async function updateImage(id: string | number, url: string) {
@@ -87,7 +134,7 @@ export default function AdminImagesPage() {
       return;
     }
 
-    setBusyId(id);
+    setBusy({ scope: "row", id, op: "save" });
     const { error: upErr } = await supabase
       .from("images")
       .update({
@@ -95,13 +142,13 @@ export default function AdminImagesPage() {
         modified_by_user_id: uid,
       })
       .eq("id", id);
-    setBusyId(null);
+    setBusy(null);
 
     if (upErr) {
       setError(upErr.message);
       return;
     }
-    await load();
+    await load({ silent: true });
   }
 
   async function deleteImage(id: string | number) {
@@ -110,15 +157,15 @@ export default function AdminImagesPage() {
     }
     setError(null);
     const supabase = createClient();
-    setBusyId(id);
+    setBusy({ scope: "row", id, op: "delete" });
     const { error: delErr } = await supabase.from("images").delete().eq("id", id);
-    setBusyId(null);
+    setBusy(null);
 
     if (delErr) {
       setError(delErr.message);
       return;
     }
-    await load();
+    await load({ silent: true });
   }
 
   return (
@@ -131,11 +178,29 @@ export default function AdminImagesPage() {
           Create, update, and delete rows. Inserts and updates set audit fields
           using your profile id.
         </p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          The list is paginated (50 per page, newest first by{" "}
+          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">
+            created_datetime_utc
+          </code>
+          ).
+        </p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Use{" "}
+          <Link
+            href="/admin/images"
+            scroll
+            className="font-medium text-zinc-800 underline dark:text-zinc-200"
+          >
+            first page
+          </Link>{" "}
+          or the controls at the bottom to change pages.
+        </p>
       </header>
 
       <form
         onSubmit={createImage}
-        className="mb-10 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-end"
+        className="mb-8 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-end"
       >
         <div className="min-w-0 flex-1">
           <label
@@ -155,10 +220,10 @@ export default function AdminImagesPage() {
         </div>
         <button
           type="submit"
-          disabled={busyId !== null || !newUrl.trim()}
+          disabled={busy !== null || !newUrl.trim()}
           className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
         >
-          {busyId === "__create__" ? "Saving…" : "Create"}
+          {busy?.scope === "create" ? "Saving…" : "Create"}
         </button>
       </form>
 
@@ -171,20 +236,38 @@ export default function AdminImagesPage() {
       {loading ? (
         <p className="text-sm text-zinc-500">Loading images…</p>
       ) : (
-        <ul className="space-y-6">
-          {rows.map((row) => (
-            <ImageRowEditor
-              key={`${row.id}-${String(row.modified_datetime_utc ?? row.url)}`}
-              row={row}
-              busy={busyId === row.id}
-              onSave={(url) => void updateImage(row.id, url)}
-              onDelete={() => void deleteImage(row.id)}
+        <>
+          <ul className="space-y-5">
+            {rows.map((row) => (
+              <ImageRowEditor
+                key={`${row.id}-${String(row.modified_datetime_utc ?? row.url)}`}
+                row={row}
+                pending={
+                  busy?.scope === "row" && busy.id === row.id ? busy.op : null
+                }
+                onSave={(url) => void updateImage(row.id, url)}
+                onDelete={() => void deleteImage(row.id)}
+              />
+            ))}
+            {rows.length === 0 && !error && (
+              <li className="text-sm text-zinc-500">
+                {totalCount === 0
+                  ? "No image rows yet."
+                  : "No image rows on this page."}
+              </li>
+            )}
+          </ul>
+
+          {!error && (
+            <Pagination
+              page={page}
+              totalPages={Math.max(1, Math.ceil(totalCount / PAGE_SIZE))}
+              totalCount={totalCount}
+              pageSize={PAGE_SIZE}
+              basePath="/admin/images"
             />
-          ))}
-          {rows.length === 0 && (
-            <li className="text-sm text-zinc-500">No image rows yet.</li>
           )}
-        </ul>
+        </>
       )}
     </div>
   );
@@ -192,28 +275,35 @@ export default function AdminImagesPage() {
 
 function ImageRowEditor({
   row,
-  busy,
+  pending,
   onSave,
   onDelete,
 }: {
   row: ImageRow;
-  busy: boolean;
+  pending: "save" | "delete" | null;
   onSave: (url: string) => void;
   onDelete: () => void;
 }) {
-  const [url, setUrl] = useState(row.url);
+  const rowUrl = row.url ?? "";
+  const [url, setUrl] = useState(rowUrl);
 
   return (
-    <li className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="h-40 w-full max-w-md shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
-          <img
-            src={row.url}
-            alt=""
-            className="h-full w-full object-contain"
-          />
+    <li className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        <div className="inline-flex shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-800/80">
+          {rowUrl ? (
+            <img
+              src={rowUrl}
+              alt=""
+              className="max-h-64 max-w-[min(100%,22rem)] w-auto object-contain sm:max-h-72 sm:max-w-[min(100%,26rem)]"
+            />
+          ) : (
+            <span className="flex min-h-40 min-w-[14rem] max-w-[22rem] items-center px-2 text-center text-xs text-zinc-500 sm:max-w-[26rem]">
+              No URL
+            </span>
+          )}
         </div>
-        <div className="min-w-0 flex-1 space-y-3">
+        <div className="min-w-0 flex-1 space-y-2">
           <p className="font-mono text-xs text-zinc-500">id {String(row.id)}</p>
           <input
             type="url"
@@ -224,20 +314,30 @@ function ImageRowEditor({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={busy || url.trim() === row.url}
+              disabled={pending !== null || url.trim() === rowUrl}
               onClick={() => onSave(url)}
               className="rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
             >
-              {busy ? "Saving…" : "Save"}
+              {pending === "save" ? "Saving…" : "Save"}
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={pending !== null}
               onClick={onDelete}
               className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950/50"
             >
-              Delete
+              {pending === "delete" ? "Deleting…" : "Delete"}
             </button>
+            {rowUrl ? (
+              <a
+                href={rowUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                Open
+              </a>
+            ) : null}
           </div>
           <p className="text-xs text-zinc-500">
             {row.created_datetime_utc &&
