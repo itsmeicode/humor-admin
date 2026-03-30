@@ -1,14 +1,40 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { Pagination } from "../Pagination";
 
-export default async function AdminUsersPage() {
+export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 25;
+
+export default async function AdminUsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ page?: string }>;
+}) {
+  await connection();
+  const params = await searchParams;
+  const pageRaw = parseInt(params.page ?? "1", 10);
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1;
+
   const supabase = await createClient();
-  const { data: rows, error } = await supabase
+  const { data: rows, error, count } = await supabase
     .from("profiles")
     .select(
-      "id, is_superadmin, created_datetime_utc, modified_datetime_utc"
+      "id, is_superadmin, created_datetime_utc, modified_datetime_utc",
+      { count: "exact" }
     )
-    .order("created_datetime_utc", { ascending: false })
-    .limit(200);
+    .order("created_datetime_utc", { ascending: false, nullsFirst: false })
+    .order("id", { ascending: false })
+    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (page > totalPages && total > 0) {
+    redirect(`/admin/users?page=${totalPages}`);
+  }
 
   return (
     <div className="p-6 md:p-10">
@@ -16,9 +42,20 @@ export default async function AdminUsersPage() {
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
           Profiles
         </h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Read-only directory of user profiles (up to 200 rows).
-        </p>
+        <div className="mt-2 space-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+          <p>Read-only directory of user profiles.</p>
+          <p>
+            Use{" "}
+            <Link
+              href="/admin/users"
+              className="font-medium text-zinc-800 underline dark:text-zinc-200"
+              scroll
+            >
+              first page
+            </Link>{" "}
+            or the controls at the bottom to change pages.
+          </p>
+        </div>
       </header>
 
       {error && (
@@ -39,7 +76,10 @@ export default async function AdminUsersPage() {
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {(rows ?? []).map((r) => (
-              <tr key={String(r.id)} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50">
+              <tr
+                key={String(r.id)}
+                className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/50"
+              >
                 <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">
                   {String(r.id)}
                 </td>
@@ -54,12 +94,16 @@ export default async function AdminUsersPage() {
                 </td>
                 <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                   {r.created_datetime_utc
-                    ? String(r.created_datetime_utc).slice(0, 19).replace("T", " ")
+                    ? String(r.created_datetime_utc)
+                        .slice(0, 19)
+                        .replace("T", " ")
                     : "—"}
                 </td>
                 <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                   {r.modified_datetime_utc
-                    ? String(r.modified_datetime_utc).slice(0, 19).replace("T", " ")
+                    ? String(r.modified_datetime_utc)
+                        .slice(0, 19)
+                        .replace("T", " ")
                     : "—"}
                 </td>
               </tr>
@@ -67,6 +111,20 @@ export default async function AdminUsersPage() {
           </tbody>
         </table>
       </div>
+
+      {!error && (rows ?? []).length === 0 && (
+        <p className="mt-4 text-sm text-zinc-500">No profiles found.</p>
+      )}
+
+      {!error && (
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          totalCount={total}
+          pageSize={PAGE_SIZE}
+          basePath="/admin/users"
+        />
+      )}
     </div>
   );
 }
