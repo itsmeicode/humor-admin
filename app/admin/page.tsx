@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 
 function pct(part: number, whole: number): string {
@@ -40,8 +41,9 @@ export default async function AdminDashboardPage() {
     supabase
       .from("captions")
       .select("id, content, is_public, created_datetime_utc")
-      .order("created_datetime_utc", { ascending: false })
-      .limit(6),
+      .order("created_datetime_utc", { ascending: false, nullsFirst: false })
+      .order("id", { ascending: false })
+      .limit(10),
   ]);
 
   const p = profilesCount.count ?? 0;
@@ -185,14 +187,23 @@ export default async function AdminDashboardPage() {
       </section>
 
       <section className="mt-8 rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-          Newest captions
-        </h2>
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+          <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Newest captions
+          </h2>
+          <Link
+            href="/admin/captions"
+            className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
+          >
+            All captions →
+          </Link>
+        </div>
         <p className="mt-1 text-xs text-zinc-500">
-          Latest rows by{" "}
+          10 newest by{" "}
           <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">
             created_datetime_utc
           </code>
+          , then <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">id</code>
         </p>
         <ul className="mt-4 divide-y divide-zinc-100 dark:divide-zinc-800">
           {(recentCaptions.data ?? []).map((row) => (
