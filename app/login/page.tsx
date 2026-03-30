@@ -39,15 +39,22 @@ function LoginForm() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-zinc-100 px-4 dark:bg-zinc-950">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Admin sign-in
+        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-amber-600 dark:text-amber-400">
+          Admin panel
+        </p>
+        <h1 className="mt-2 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          Sign In
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Google OAuth only. Access to{" "}
+          Google OAuth only. After a successful sign-in you are sent to{" "}
           <span className="font-medium text-zinc-800 dark:text-zinc-200">
             /admin
           </span>{" "}
-          requires <code className="rounded bg-zinc-100 px-1 text-xs dark:bg-zinc-800">profiles.is_superadmin</code>.
+          if your profile has{" "}
+          <code className="rounded-md bg-zinc-200 px-1.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+            is_superadmin = true
+          </code>
+          .
         </p>
         {error && (
           <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950 dark:text-red-200">
