@@ -49,7 +49,7 @@ function LoginForm() {
           Sign In
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Google OAuth only. After a successful sign-in you are sent to{" "}
+          After a successful sign-in you are sent to{" "}
           <span className="font-medium text-zinc-800 dark:text-zinc-200">
             /admin
           </span>{" "}
