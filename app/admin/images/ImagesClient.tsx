@@ -1,11 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Pagination } from "../Pagination";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
+
+const STORAGE_BUCKET =
+  process.env.NEXT_PUBLIC_SUPABASE_STORAGE_BUCKET ?? "images";
+
+function safeFileName(name: string) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 export type ImageRow = {
   id: string | number;
@@ -15,7 +22,8 @@ export type ImageRow = {
 };
 
 type BusyState =
-  | { scope: "create" }
+  | { scope: "createUrl" }
+  | { scope: "createUpload" }
   | { scope: "row"; id: string | number; op: "save" | "delete" }
   | null;
 
@@ -34,6 +42,8 @@ export function ImagesClient({
   const [totalCount, setTotalCount] = useState(initialTotal);
   const [error, setError] = useState<string | null>(null);
   const [newUrl, setNewUrl] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<BusyState>(null);
 
   useEffect(() => {
@@ -94,7 +104,7 @@ export function ImagesClient({
       return;
     }
 
-    setBusy({ scope: "create" });
+    setBusy({ scope: "createUrl" });
     const { error: insErr } = await supabase.from("images").insert({
       url,
       created_by_user_id: uid,
@@ -107,6 +117,51 @@ export function ImagesClient({
       return;
     }
     setNewUrl("");
+    await load({ silent: true });
+  }
+
+  async function createImageFromUpload(e: React.FormEvent) {
+    e.preventDefault();
+    if (!uploadFile) return;
+
+    setError(null);
+    const supabase = createClient();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const uid = sessionData.session?.user.id;
+    if (!uid) {
+      setError("Not signed in.");
+      return;
+    }
+
+    const path = `${uid}/${Date.now()}-${safeFileName(uploadFile.name)}`;
+    setBusy({ scope: "createUpload" });
+    const { error: upErr } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(path, uploadFile, { cacheControl: "3600", upsert: false });
+    if (upErr) {
+      setBusy(null);
+      setError(upErr.message);
+      return;
+    }
+
+    const { data: pub } = supabase.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(path);
+    const publicUrl = pub.publicUrl;
+
+    const { error: insErr } = await supabase.from("images").insert({
+      url: publicUrl,
+      created_by_user_id: uid,
+      modified_by_user_id: uid,
+    });
+    setBusy(null);
+
+    if (insErr) {
+      setError(insErr.message);
+      return;
+    }
+    setUploadFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     await load({ silent: true });
   }
 
@@ -164,11 +219,12 @@ export function ImagesClient({
           Images
         </h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Create, update, and delete rows. Inserts and updates set audit fields
-          using your profile id.
+          Create rows with a public URL, or upload a file to a Supabase Storage
+          bucket ({STORAGE_BUCKET}). Inserts set audit fields using your profile
+          id.
         </p>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          The list is paginated (50 per page, newest first by{" "}
+          The list is paginated (25 per page, newest first by{" "}
           <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">
             created_datetime_utc
           </code>
@@ -209,10 +265,51 @@ export function ImagesClient({
         </div>
         <button
           type="submit"
-          disabled={busy !== null || !newUrl.trim()}
+          disabled={
+            busy?.scope === "createUrl" ||
+            busy?.scope === "createUpload" ||
+            busy?.scope === "row" ||
+            !newUrl.trim()
+          }
           className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:hover:text-zinc-950"
         >
-          {busy?.scope === "create" ? "Saving…" : "Create"}
+          {busy?.scope === "createUrl" ? "Saving…" : "Create from URL"}
+        </button>
+      </form>
+
+      <form
+        onSubmit={(e) => void createImageFromUpload(e)}
+        className="mb-8 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-end"
+      >
+        <div className="min-w-0 flex-1">
+          <label
+            htmlFor="upload-image"
+            className="text-xs font-medium uppercase tracking-wide text-zinc-500"
+          >
+            Or upload image file
+          </label>
+          <input
+            ref={fileInputRef}
+            id="upload-image"
+            type="file"
+            accept="image/*"
+            onChange={(e) =>
+              setUploadFile(e.target.files?.[0] ?? null)
+            }
+            className="mt-1 block w-full cursor-pointer text-sm text-zinc-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border file:border-zinc-300 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-zinc-700 file:transition-colors hover:file:bg-zinc-100 dark:text-zinc-300 dark:file:border-zinc-600 dark:file:bg-zinc-800 dark:file:text-zinc-200 dark:hover:file:bg-zinc-700"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={
+            busy?.scope === "createUrl" ||
+            busy?.scope === "createUpload" ||
+            busy?.scope === "row" ||
+            !uploadFile
+          }
+          className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white dark:hover:text-zinc-950"
+        >
+          {busy?.scope === "createUpload" ? "Uploading…" : "Upload & Create"}
         </button>
       </form>
 
@@ -277,15 +374,15 @@ function ImageRowEditor({
   return (
     <li className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-        <div className="inline-flex shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-700 dark:bg-zinc-800/80">
+        <div className="flex h-80 w-80 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/80">
           {rowUrl ? (
             <img
               src={rowUrl}
               alt=""
-              className="max-h-64 max-w-[min(100%,22rem)] w-auto object-contain sm:max-h-72 sm:max-w-[min(100%,26rem)]"
+              className="h-full w-full object-contain"
             />
           ) : (
-            <span className="flex min-h-40 min-w-[14rem] max-w-[22rem] items-center px-2 text-center text-xs text-zinc-500 sm:max-w-[26rem]">
+            <span className="text-center text-xs text-zinc-500">
               No URL
             </span>
           )}
