@@ -6,7 +6,10 @@ const navSections: { title: string; items: { href: string; label: string }[] }[]
   [
     {
       title: "Overview",
-      items: [{ href: "/admin", label: "Overview" }],
+      items: [
+        { href: "/admin", label: "Overview" },
+        { href: "/admin/caption-stats", label: "Caption Stats" },
+      ],
     },
     {
       title: "Users & Content",
